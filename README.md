@@ -1,93 +1,185 @@
-# GLARE
+# GLARE - GitLab Automated Replication & Export
 
+## Overview
+This project provides a set of scripts to migrate GitLab groups, projects, repositories and secret variables.
+It was orinaly used for migration from gitlab SAAS to onprem, but it'll work in case of migraiton from onprem to onprem as well. 
 
+## Installation 
+Required python version >=3.12.1
 
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
-
+Use pip to install requirements.
+```bash
+pip install -r requirements.txt
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/bettersolutions/glare.git
-git branch -M master
-git push -uf origin master
+## Environment Configuration
+
+MOdify `.env` file in the project root with the following configuration:
+
+```ini
+# GitLab API Access
+GITLAB_SOURCE_URL=https://gitlab.com # Source url of the Repository; typically it will be https://gitlab.com if you're moving from SaaS solution, but could be a different address if you're migrating between two on-premise hosted platforms
+GITLAB_SOURCE_TOKEN=your_source_gitlab_token #Generated api token for source Gitlab. Use token with minimal scope "api"
+GITLAB_TARGET_URL=https://gitlab.destination.com # Destination  url of the Repository
+GITLAB_TARGET_TOKEN=your_target_gitlab_token #Generated api token for destination Gitlab. Use token with minimal scope "api"
+REPLACEMENTS = {'gitlab.com':'your.gitlab.com', "foo":"bar"} #dict of strings in repository to be replaced (from foo in the orginal repository to bar in the migrated repository)
 ```
 
-## Integrate with your tools
+## Structure 
+Project consists of 4 migration scripts:
+- **`group_manager.py`**: Creates a new GitLab group and subgroups, utilizing import/export api
+- **`project_manager.py`**: Migrates projects to group, utilizing import/export api
+- **`repository_manager.py`**: Modification of the imported repository, it'll go through files in the repository, change the strings based on REPLACEMENTS dict and create a MR with the changes 
+- **`secrets_manager.py`**: Migrates secret variables, both for group and projects in that group. 
 
-- [ ] [Set up project integrations](https://gitlab.com/bettersolutions/glare/-/settings/integrations)
+## Execution
+Use `migrate-all` for a complete migration or run individual commands as needed.
+## Available Commands
 
-## Collaborate with your team
+### **Scripts Parameters:**
+- `--source-path` *(required)* → Path of the source group (e.g., `group/subgroup`).
+- `--dest-path` *(optional)* → Destination parent group path.
+- `--new-name` *(optional)* → New name for the group.
+- `--new-path` *(optional)* → New group path. Used in migrate-group and migrate-all
+- `--top-level-group` *(optional, default: `False`)* → If set, creates the group as a top-level group.
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+### **1. Migrate Group**
 
-## Test and Deploy
+#### **Usage:**
+```bash
+python glare.py migrate-group --source-path <source_path> --dest-path <dest_path> [--new-name <new_name>] [--new-path <new_path>] [--top-level-group]
+```
 
-Use the built-in continuous integration in GitLab.
+#### **Description:**
+Exports a GitLab group from the source instance and imports it into the destination instance.
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+#### **Execution Steps:**
+1. Gets the group ID from the source GitLab instance.
+2. Exports the group.
+3. Imports the group as a top-level entity if `top_level_group` is set.
+4. Otherwise, imports it under the destination group.
 
-***
+---
 
-# Editing this README
+### **2. Migrate Projects**
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+#### **Usage:**
+```bash
+python glare.py migrate-projects --source-path <source_path> --dest-path <dest_path> [--new-path <new_path>] [--top-level-group]
+```
 
-## Suggestions for a good README
+#### **Description:**
+Exports projects from the source group and imports them into the destination group.
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+#### **Execution Steps:**
+1. Retrieves all projects under the source group.
+2. Exports the projects.
+3. Determines the destination group path:
+   - Uses `new_path` if provided.
+   - Defaults to the last part of `source_path`.
+4. Imports projects into the destination.
 
-## Name
-Choose a self-explaining name for your project.
+---
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+### **3. Migrate Secrets**
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+#### **Usage:**
+```bash
+python glare.py migrate-secrets --source-path <source_path> --dest-path <dest_path> [--new-path <new_path>] [--top-level-group]
+```
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+#### **Description:**
+Migrates group and project secrets (CI/CD variables) from the source group to the destination group.
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+#### **Execution Steps:**
+1. Migrates group variables.
+2. Migrates project variables.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+---
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+### **4. Replace Repositories**
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+#### **Usage:**
+```bash
+python glare.py replace-repositories --source-path <source_path> --dest-path <dest_path> [--new-path <new_path>] [--top-level-group]
+```
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+#### **Description:**
+Updates strings in repository in all migrated projects defined by REPLACEMENTS.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+#### **Execution Steps:**
+1. Determines the destination group path.
+2. Fetches all projects under the destination group.
+3. Replaces repository strings for all projects.
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+---
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+### **5. Migrate All**
 
-## License
-For open source projects, say how it is licensed.
+#### **Usage:**
+```bash
+python glare.py migrate-all --source-path <source_path> --dest-path <dest_path> [--new-name <new_name>] [--new-path <new_path>] [--top-level-group]
+```
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+#### **Description:**
+Executes a full migration workflow, including:
+- Group migration
+- Project migration
+- Secrets migration
+- Repository string replacement
+
+
+## Examples 
+NOTE: When using --top-level-group there is no need to specify --new-path, param --dest-path will be used.
+If no --top-level-group is specified the --dest-path must exists on the new instance. 
+
+### Migrate all 
+#### Case 1 - top-level-group
+```bash
+python glare.py migrate-all --source-path foo/bar --dest-path foobar --top-level-group
+```
+It will migrate the group abr including all subgroups, projects, variables from path gitlab.com/foo/bar to your.gitlab.com/foobar. It'll default to the orginal group name as no --new-name is specified. 
+
+#### Case 2 subgroup 
+```bash
+python glare.py migrate-all --source-path foo/bar --dest-path foo
+```
+The script will assume the foo group exists on the new instance. It will migrate group bar including all subgroups, projects, variables from path gitlab.com/foo/bar to your.gitlab.com/foo/bar. It'll default to the orginal group name as no --new-name is specified. 
+
+#### Case 3 subgroup, change name and  path  
+```bash
+python glare.py migrate-all --source-path foo/bar --dest-path foo  --new-path rab --new-name lorem
+```
+The script will assume the foo group exists on the new instance. It will migrate group bar including all subgroups, projects, variables from path gitlab.com/foo/bar to your.gitlab.com/foo/rab naming the group lorem. 
+
+### Migrate secrets/projects/replace-repos 
+Logic applies to migrate-secrets, migrate-projects, replace-repositories
+#### Case 1 
+```bash
+python glare.py migrate-secrets --source-path foo/bar --dest-path foo
+```
+The command will migrate all secrets from group gitlab.com/foo/bar and projects in the group to group your.gitlab.com/foo/bar. It'll assume group bar exists. 
+
+#### Case 2
+```bash
+python glare.py migrate-secrets --source-path foo/bar --dest-path foo --new-path lorem
+```
+The command will migrate all secrets from group gitlab.com/foo/bar and projects in the group to group your.gitlab.com/foo/lorem. It'll assume group lorem exists.
+
+#### Case 3
+```bash
+python glare.py migrate-secrets --source-path foo/bar --dest-path lorem --top-level-group
+```
+The command will migrate all secrets from group gitlab.com/foo/bar and projects in the group to group your.gitlab.com/lorem. It'll assume group lorem exists.
+
+### Migrate group 
+#### Case 1
+```bash
+python glare.py migrate-group --source-path foo/bar --dest-path lorem --top-level-group
+```
+The command will migrate group and subgroups gitlab.com/foo/bar to top-level group your.gitlab.com/lorem.
+
+#### Case 2
+```bash
+python glare.py migrate-group --source-path foo/bar --dest-path lorem 
+```
+The command will migrate group and subgroups gitlab.com/foo/bar to sub-level group your.gitlab.com/lorem/bar.

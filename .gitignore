@@ -1,0 +1,7 @@
+.venv/
+.idea/
+__pycache__
+exports/
+repositories/
+pyvenv.cfg
+.DS_Store
